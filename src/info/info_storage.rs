@@ -1,12 +1,14 @@
 use crate::info::info_def::InfoSlot;
 use crate::utils::circular_queue::CircularQueue;
-use esp_idf_svc::{nvs, sys::EspError};
+use esp_idf_svc::{
+    nvs::{self, NvsDefault},
+    sys::EspError,
+};
 use thiserror::Error;
+use std::fs::File;
 
 #[derive(Debug, Error)]
 pub enum InfoStorageError {
-    #[error("Storage capacity exceeded")]
-    CapacityExceeded,
     #[error("Storage read error")]
     ReadError,
     #[error("Storage write error")]
@@ -22,6 +24,8 @@ pub enum InfoStorageError {
 trait InfoRW {
     fn capacity(&self) -> usize;
 
+    fn len(&self) -> usize;
+
     fn enqueue_info(&mut self, info: &InfoSlot) -> Result<(), InfoStorageError>;
 
     fn dequeue_info(&mut self) -> Result<InfoSlot, InfoStorageError>;
@@ -30,7 +34,7 @@ trait InfoRW {
         &self,
         start_time: u32,
         end_time: u32,
-    ) -> Result<impl Iterator<Item = InfoSlot>, InfoStorageError>;
+    ) -> Result<impl Iterator<Item = &InfoSlot>, InfoStorageError>;
 
     fn clear_storage(&mut self) -> Result<(), InfoStorageError>;
 
@@ -44,37 +48,60 @@ trait InforPersistence {
 
     fn erease_info(&mut self, timestamp: u32) -> Result<(), InfoStorageError>;
 
-    fn persist_all(&mut self, infos: impl Iterator<Item = InfoSlot>) -> Result<(), InfoStorageError>;
+    fn persist_all(
+        &mut self,
+        infos: impl Iterator<Item = InfoSlot>,
+    ) -> Result<(), InfoStorageError>;
 
     fn load_all(&self) -> Result<impl Iterator<Item = InfoSlot>, InfoStorageError>;
 
     fn clear_storage(&mut self) -> Result<(), InfoStorageError>;
 }
 
-/// 基于内存的信息存储（使用循环队列）
-/// 适用于需要快速访问最近数据的场景
-pub struct MemoryInfoStorage<const N: usize> {
-    queue: CircularQueue<InfoSlot, N>,
+/// NVS 持久化存储（待实现）
+pub struct NvsInfoStorage {
+    nvs: nvs::EspNvs<NvsDefault>,
+    queue: CircularQueue<InfoSlot, 4096>,
 }
 
-impl<const N: usize> MemoryInfoStorage<N> {
-    /// 创建新的内存存储
-    pub const fn new() -> Self {
-        Self {
-            queue: CircularQueue::new(),
-        }
+impl NvsInfoStorage {
+    const NVS_NAMESPACE: &'static str = "info_storage";
+    pub fn new() -> Result<Self, InfoStorageError> {
+        let queue = CircularQueue::new();
+        log::info!("Circular queue created successfully.");
+        let partition = nvs::EspNvsPartition::<NvsDefault>::take()
+            .map_err(|_| InfoStorageError::InitializationError)?;
+        log::info!("NVS partition taken successfully.");
+        let nvs = nvs::EspNvs::new(partition, Self::NVS_NAMESPACE, true)
+            .map_err(|_| InfoStorageError::InitializationError)?;
+        log::info!("NVS initialized successfully.");
+        Ok(Self { nvs, queue })
+    }
+
+    pub fn nvs_write_u8(&mut self, key: &str, value: u8) -> Result<(), InfoStorageError> {
+        self.nvs.set_u8(key, value).map_err(InfoStorageError::NvsError)
+    }
+    
+    pub fn nvs_read_u8(&mut self, key: &str) -> Result<u8, InfoStorageError> {
+        Ok(self.nvs.get_u8(key).map_err(InfoStorageError::NvsError)?.unwrap())
     }
 }
 
-impl<const N: usize> InfoRW for MemoryInfoStorage<N> {
+impl InfoRW for NvsInfoStorage {
+
     fn capacity(&self) -> usize {
         self.queue.capacity()
     }
 
+    fn len(&self) -> usize {
+        self.queue.len()
+    }
+
     fn enqueue_info(&mut self, info: &InfoSlot) -> Result<(), InfoStorageError> {
-        // 使用覆盖模式，自动丢弃最旧的数据
-        self.queue.push_overwrite(*info);
-        Ok(())
+        if self.queue.is_full() {
+            self.queue.pop();
+        }
+        self.queue.push(*info).map_err(|_| InfoStorageError::WriteError)
     }
 
     fn dequeue_info(&mut self) -> Result<InfoSlot, InfoStorageError> {
@@ -82,21 +109,17 @@ impl<const N: usize> InfoRW for MemoryInfoStorage<N> {
     }
 
     fn find_range(
-        &self,
-        start_time: u32,
-        end_time: u32,
-    ) -> Result<impl Iterator<Item = InfoSlot>, InfoStorageError> {
-        // 过滤出时间范围内的数据
-        let filtered: Vec<InfoSlot> = self.queue
+            &self,
+            start_time: u32,
+            end_time: u32,
+        ) -> Result<impl Iterator<Item = &InfoSlot>, InfoStorageError> {
+        let infos = self.queue
             .iter()
-            .filter(|info| {
-                let time = info.get_unix_time();
-                time >= start_time && time <= end_time
-            })
-            .copied()
-            .collect();
-        
-        Ok(filtered.into_iter())
+            .filter(move |info| {
+                let timestamp = info.get_unix_time();
+                timestamp >= start_time && timestamp <= end_time
+            });
+        Ok(infos)
     }
 
     fn clear_storage(&mut self) -> Result<(), InfoStorageError> {
@@ -105,23 +128,20 @@ impl<const N: usize> InfoRW for MemoryInfoStorage<N> {
     }
 
     fn clear_range(&mut self, start_time: u32, end_time: u32) -> Result<(), InfoStorageError> {
-        // 由于循环队列的特性，我们需要重建队列
         let mut new_queue = CircularQueue::new();
-        
         for info in self.queue.iter() {
-            let time = info.get_unix_time();
-            // 保留不在删除范围内的数据
-            if time < start_time || time > end_time {
-                new_queue.push(*info).ok();
+            let timestamp = info.get_unix_time();
+            if timestamp < start_time || timestamp > end_time {
+                new_queue.push(*info).map_err(|_| InfoStorageError::WriteError)?;
             }
         }
-        
         self.queue = new_queue;
         Ok(())
     }
 }
 
-/// NVS 持久化存储（待实现）
-pub struct NvsInfoStorage {
-
-}
+// impl InforPersistence for NvsInfoStorage {
+//     fn persist_info(&mut self, info: &InfoSlot) -> Result<(), InfoStorageError> {
+//         let key = info.get_unix_time().to_string();
+//     }
+// }

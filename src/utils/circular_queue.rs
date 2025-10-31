@@ -1,51 +1,60 @@
-/// 循环队列实现，使用预分配的数组，适用于 no_std 嵌入式环境
+/// 循环队列实现，使用 Vec 动态分配
 /// 
 /// # 特性
-/// - 使用固定大小的数组，不依赖堆分配
+/// - 使用 Vec 动态分配内存，避免栈溢出
 /// - 提供 push/pop 操作
 /// - 提供非破坏性的迭代器
 /// - 线程安全（需要外部同步）
 #[derive(Debug)]
 pub struct CircularQueue<T, const N: usize> {
-    buffer: [Option<T>; N],
-    head: usize,  // 队头位置（出队）
-    tail: usize,  // 队尾位置（入队）
-    len: usize,   // 当前元素数量
+    buffer: Vec<Option<T>>,  // 使用 Vec 存储元素
+    capacity: usize,         // 队列容量
+    head: usize,             // 队头位置（出队）
+    tail: usize,             // 队尾位置（入队）
 }
 
 impl<T, const N: usize> CircularQueue<T, N> {
     /// 创建一个新的空循环队列
-    pub const fn new() -> Self {
+    /// 
+    /// 使用 Vec 预分配容量，避免栈溢出
+    pub fn new() -> Self {
+        let mut buffer = Vec::with_capacity(N);
+        buffer.resize_with(N, || None);
         Self {
-            buffer: [const { None }; N],
+            buffer,
+            capacity: N,
             head: 0,
             tail: 0,
-            len: 0,
         }
     }
 
     /// 返回队列的容量
     #[inline]
-    pub const fn capacity(&self) -> usize {
-        N
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
     /// 返回队列当前的元素数量
     #[inline]
-    pub const fn len(&self) -> usize {
-        self.len
+    pub fn len(&self) -> usize {
+        if self.tail >= self.head {
+            self.tail - self.head
+        } else {
+            self.capacity - self.head + self.tail
+        }
     }
 
     /// 检查队列是否为空
     #[inline]
-    pub const fn is_empty(&self) -> bool {
-        self.len == 0
+    pub fn is_empty(&self) -> bool {
+        self.head == self.tail && self.buffer[self.head].is_none()
     }
 
     /// 检查队列是否已满
     #[inline]
-    pub const fn is_full(&self) -> bool {
-        self.len == N
+    pub fn is_full(&self) -> bool {
+        let next_tail = (self.tail + 1) % self.capacity;
+        next_tail == self.head && self.buffer[self.head].is_some()
     }
 
     /// 向队尾添加元素
@@ -59,8 +68,7 @@ impl<T, const N: usize> CircularQueue<T, N> {
         }
 
         self.buffer[self.tail] = Some(value);
-        self.tail = (self.tail + 1) % N;
-        self.len += 1;
+        self.tail = (self.tail + 1) % self.capacity;
         Ok(())
     }
 
@@ -72,14 +80,13 @@ impl<T, const N: usize> CircularQueue<T, N> {
     pub fn push_overwrite(&mut self, value: T) -> Option<T> {
         if self.is_full() {
             let old = self.buffer[self.head].take();
-            self.head = (self.head + 1) % N;
+            self.head = (self.head + 1) % self.capacity;
             self.buffer[self.tail] = Some(value);
-            self.tail = (self.tail + 1) % N;
+            self.tail = (self.tail + 1) % self.capacity;
             old
         } else {
             self.buffer[self.tail] = Some(value);
-            self.tail = (self.tail + 1) % N;
-            self.len += 1;
+            self.tail = (self.tail + 1) % self.capacity;
             None
         }
     }
@@ -95,8 +102,7 @@ impl<T, const N: usize> CircularQueue<T, N> {
         }
 
         let value = self.buffer[self.head].take();
-        self.head = (self.head + 1) % N;
-        self.len -= 1;
+        self.head = (self.head + 1) % self.capacity;
         value
     }
 
@@ -135,15 +141,19 @@ impl<T, const N: usize> CircularQueue<T, N> {
 impl<T: Clone, const N: usize> CircularQueue<T, N> {
     /// 返回指定索引位置的元素引用（0 表示队头）
     pub fn get(&self, index: usize) -> Option<&T> {
-        if index >= self.len {
+        let len = self.len();
+        if index >= len {
             return None;
         }
-        let actual_index = (self.head + index) % N;
+        let actual_index = (self.head + index) % self.capacity;
         self.buffer[actual_index].as_ref()
     }
 }
 
-impl<T, const N: usize> Default for CircularQueue<T, N> {
+impl<T, const N: usize> Default for CircularQueue<T, N> 
+where
+    T: Default,
+{
     fn default() -> Self {
         Self::new()
     }
@@ -161,24 +171,27 @@ impl<'a, T, const N: usize> Iterator for Iter<'a, T, N> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.queue.len {
+        let queue_len = self.queue.len();
+        if self.index >= queue_len {
             return None;
         }
 
-        let actual_index = (self.queue.head + self.index) % N;
+        let actual_index = (self.queue.head + self.index) % self.queue.capacity;
         self.index += 1;
         self.queue.buffer[actual_index].as_ref()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.queue.len - self.index;
+        let queue_len = self.queue.len();
+        let remaining = queue_len.saturating_sub(self.index);
         (remaining, Some(remaining))
     }
 }
 
 impl<'a, T, const N: usize> ExactSizeIterator for Iter<'a, T, N> {
     fn len(&self) -> usize {
-        self.queue.len - self.index
+        let queue_len = self.queue.len();
+        queue_len.saturating_sub(self.index)
     }
 }
 

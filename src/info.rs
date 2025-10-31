@@ -1,2 +1,2 @@
-mod info_def;
-mod info_storage;
+pub mod info_def;
+pub mod info_storage;
