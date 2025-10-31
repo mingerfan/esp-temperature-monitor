@@ -29,10 +29,13 @@ experimental = ["esp-idf-svc/experimental"]
 
 [dependencies]
 log = "0.4"
-esp-idf-svc = "0.51"
+esp-idf-svc = { version = "0.51", features = ["critical-section"] }
 embedded-hal = "1.0.0"
 thiserror = "2.0.17"
 paste = "1.0"
+esp-idf-sys = "0.36.1"
+esp-storage = { version = "0.4.0", features = ["esp32c3"] }
+embedded-storage = "0.3.1"
 
 # --- Optional Embassy Integration ---
 # esp-idf-svc = { version = "0.51", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
@@ -53,3 +56,6 @@ paste = "1.0"
 
 [build-dependencies]
 embuild = "0.33"
+
+[package.metadata.espflash]
+partition_table = "partitions.csv"

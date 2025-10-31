@@ -5,7 +5,7 @@ use esp_idf_svc::{
     sys::EspError,
 };
 use thiserror::Error;
-use std::fs::File;
+use esp_storage;
 
 #[derive(Debug, Error)]
 pub enum InfoStorageError {
@@ -85,6 +85,8 @@ impl NvsInfoStorage {
     pub fn nvs_read_u8(&mut self, key: &str) -> Result<u8, InfoStorageError> {
         Ok(self.nvs.get_u8(key).map_err(InfoStorageError::NvsError)?.unwrap())
     }
+
+    // fn nvs_get_all(&self) -> Result
 }
 
 impl InfoRW for NvsInfoStorage {
