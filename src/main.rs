@@ -1,10 +1,10 @@
 mod info;
 mod utils;
-use esp_idf_svc::hal::{delay::FreeRtos, peripherals::Peripherals};
 use esp_idf_sys::esp;
-use info::info_storage::NvsInfoStorage;
-use esp_storage::{FlashStorage};
-use embedded_storage::ReadStorage;
+use info::info_def::InfoSlot;
+use info::info_storage::InfoStorage;
+use std::thread::sleep;
+use std::time::Duration;
 
 fn main() {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -16,14 +16,8 @@ fn main() {
 
     // let peripherals = Peripherals::take().unwrap();
 
-    // let mut nvs_storage = NvsInfoStorage::new().unwrap();
-
-    // let mut flash = FlashStorage::new();
-    // let mut buf = [0u8; 256];
-    // flash.read(0x9000, &mut buf).unwrap();
-
     let spiffs_cfg = esp_idf_sys::esp_vfs_spiffs_conf_t {
-        base_path: c"/spiffs".as_ptr(),  // C 字符串字面量（Rust 1.77+）
+        base_path: c"/spiffs".as_ptr(), // C 字符串字面量（Rust 1.77+）
         partition_label: core::ptr::null(),
         max_files: 5,
         format_if_mount_failed: true,
@@ -31,23 +25,81 @@ fn main() {
 
     let res = unsafe { esp_idf_sys::esp_vfs_spiffs_register(&spiffs_cfg) };
     esp!(res).unwrap();
+    let mut storage = match InfoStorage::new() {
+        Ok(storage) => storage,
+        Err(err) => {
+            log::error!("初始化 InfoStorage 失败: {err}");
+            return;
+        }
+    };
 
-    // 先写入文件
-    std::fs::write("/spiffs/hello.txt", b"Hello from SPIFFS!").unwrap();
-    log::info!("File written to SPIFFS");
+    log::info!(
+        "持久化仓恢复完成，当前条目数 {}/{}",
+        storage.len(),
+        storage.capacity()
+    );
 
-    // 再读取文件
-    let content = std::fs::read_to_string("/spiffs/hello.txt").unwrap();
-    log::info!("File content from SPIFFS: {}", content);
+    if let Ok(existing) = storage.load_all() {
+        if !existing.is_empty() {
+            let sample_count = existing.len().min(3);
+            for slot in existing.iter().rev().take(sample_count) {
+                log::info!("恢复条目: {}", format_slot(slot));
+            }
+        }
+    }
 
-    // log::info!("Read data from Flash: {:x?}", &buf[..16]);
+    let mut counter: u32 = 0;
 
     loop {
-        log::info!("Hello, world!");
-        FreeRtos::delay_ms(500);
-        FreeRtos::delay_ms(500);
-        // let value = nvs_storage.nvs_read_u8("test_key").unwrap();
-        // log::info!("Read value from NVS: {value}");
-        
+        let timestamp_secs = unsafe { esp_idf_sys::esp_timer_get_time() } / 1_000_000;
+        let timestamp = timestamp_secs as u32;
+        let temp_tenths = (((counter % 80) as i16) - 20) as i8;
+        let humidity_tenths = ((counter * 7) % 100) as u8;
+        let slot = InfoSlot::new(timestamp, temp_tenths, humidity_tenths);
+
+        match storage.enqueue(&slot) {
+            Ok(()) => log::info!(
+                "写入条目: {} (总量 {}/{})",
+                format_slot(&slot),
+                storage.len(),
+                storage.capacity()
+            ),
+            Err(err) => log::error!("写入环形存储失败: {err}"),
+        }
+
+        if storage.len() > 30 {
+            match storage.dequeue() {
+                Ok(oldest) => log::info!("移除最旧条目: {}", format_slot(&oldest)),
+                Err(err) => log::warn!("移除最旧条目失败: {err}"),
+            }
+        }
+
+        let start_range = timestamp.saturating_sub(60);
+        match storage.find_range(start_range, timestamp) {
+            Ok(samples) => {
+                if let Some(latest) = samples.last() {
+                    log::info!(
+                        "最近一分钟共有 {} 条记录，最新: {}",
+                        samples.len(),
+                        format_slot(latest)
+                    );
+                } else {
+                    log::info!("最近一分钟没有匹配的记录");
+                }
+            }
+            Err(err) => log::warn!("查询范围失败: {err}"),
+        }
+
+        counter = counter.wrapping_add(1);
+        sleep(Duration::from_secs(1));
     }
+}
+
+fn format_slot(slot: &InfoSlot) -> String {
+    format!(
+        "时间 {} 温度 {:.1}℃ 湿度 {:.1}%",
+        slot.get_unix_time(),
+        slot.get_temperature(),
+        slot.get_humidity()
+    )
 }

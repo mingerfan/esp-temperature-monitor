@@ -1,5 +1,5 @@
 /// 循环队列实现，使用 Vec 动态分配
-/// 
+///
 /// # 特性
 /// - 使用 Vec 动态分配内存，避免栈溢出
 /// - 提供 push/pop 操作
@@ -7,15 +7,16 @@
 /// - 线程安全（需要外部同步）
 #[derive(Debug)]
 pub struct CircularQueue<T, const N: usize> {
-    buffer: Vec<Option<T>>,  // 使用 Vec 存储元素
-    capacity: usize,         // 队列容量
-    head: usize,             // 队头位置（出队）
-    tail: usize,             // 队尾位置（入队）
+    buffer: Vec<Option<T>>, // 使用 Vec 存储元素
+    capacity: usize,        // 队列容量
+    head: usize,            // 队头位置（出队）
+    tail: usize,            // 队尾位置（入队）
 }
 
+#[allow(unused)]
 impl<T, const N: usize> CircularQueue<T, N> {
     /// 创建一个新的空循环队列
-    /// 
+    ///
     /// 使用 Vec 预分配容量，避免栈溢出
     pub fn new() -> Self {
         let mut buffer = Vec::with_capacity(N);
@@ -58,7 +59,7 @@ impl<T, const N: usize> CircularQueue<T, N> {
     }
 
     /// 向队尾添加元素
-    /// 
+    ///
     /// # 返回值
     /// - `Ok(())` - 成功添加元素
     /// - `Err(value)` - 队列已满，返回原值
@@ -73,7 +74,7 @@ impl<T, const N: usize> CircularQueue<T, N> {
     }
 
     /// 强制向队尾添加元素，如果队列已满则覆盖最旧的元素
-    /// 
+    ///
     /// # 返回值
     /// - `None` - 队列未满，直接添加
     /// - `Some(old_value)` - 队列已满，返回被覆盖的旧值
@@ -92,7 +93,7 @@ impl<T, const N: usize> CircularQueue<T, N> {
     }
 
     /// 从队头移除并返回元素
-    /// 
+    ///
     /// # 返回值
     /// - `Some(value)` - 成功移除并返回元素
     /// - `None` - 队列为空
@@ -150,7 +151,7 @@ impl<T: Clone, const N: usize> CircularQueue<T, N> {
     }
 }
 
-impl<T, const N: usize> Default for CircularQueue<T, N> 
+impl<T, const N: usize> Default for CircularQueue<T, N>
 where
     T: Default,
 {
@@ -160,7 +161,7 @@ where
 }
 
 /// 循环队列的不可变迭代器
-/// 
+///
 /// 从队头到队尾顺序迭代，不会修改队列
 pub struct Iter<'a, T, const N: usize> {
     queue: &'a CircularQueue<T, N>,
@@ -197,12 +198,11 @@ impl<'a, T, const N: usize> ExactSizeIterator for Iter<'a, T, N> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     #[test]
     fn test_basic_operations() {
         let mut queue: CircularQueue<i32, 4> = CircularQueue::new();
-        
+
         assert_eq!(queue.capacity(), 4);
         assert_eq!(queue.len(), 0);
         assert!(queue.is_empty());
@@ -231,12 +231,12 @@ mod tests {
     #[test]
     fn test_full_queue() {
         let mut queue: CircularQueue<i32, 3> = CircularQueue::new();
-        
+
         assert!(queue.push(1).is_ok());
         assert!(queue.push(2).is_ok());
         assert!(queue.push(3).is_ok());
         assert!(queue.is_full());
-        
+
         // 队列已满，push 失败
         assert_eq!(queue.push(4), Err(4));
     }
@@ -244,15 +244,15 @@ mod tests {
     #[test]
     fn test_push_overwrite() {
         let mut queue: CircularQueue<i32, 3> = CircularQueue::new();
-        
+
         assert_eq!(queue.push_overwrite(1), None);
         assert_eq!(queue.push_overwrite(2), None);
         assert_eq!(queue.push_overwrite(3), None);
-        
+
         // 队列已满，覆盖最旧的元素
         assert_eq!(queue.push_overwrite(4), Some(1));
         assert_eq!(queue.push_overwrite(5), Some(2));
-        
+
         assert_eq!(queue.pop(), Some(3));
         assert_eq!(queue.pop(), Some(4));
         assert_eq!(queue.pop(), Some(5));
@@ -262,20 +262,20 @@ mod tests {
     #[test]
     fn test_circular_behavior() {
         let mut queue: CircularQueue<i32, 3> = CircularQueue::new();
-        
+
         // 填满队列
         queue.push(1).unwrap();
         queue.push(2).unwrap();
         queue.push(3).unwrap();
-        
+
         // 移除一些元素
         assert_eq!(queue.pop(), Some(1));
         assert_eq!(queue.pop(), Some(2));
-        
+
         // 再添加元素（测试循环）
         queue.push(4).unwrap();
         queue.push(5).unwrap();
-        
+
         assert_eq!(queue.pop(), Some(3));
         assert_eq!(queue.pop(), Some(4));
         assert_eq!(queue.pop(), Some(5));
@@ -285,14 +285,14 @@ mod tests {
     #[test]
     fn test_iterator() {
         let mut queue: CircularQueue<i32, 5> = CircularQueue::new();
-        
+
         queue.push(1).unwrap();
         queue.push(2).unwrap();
         queue.push(3).unwrap();
-        
+
         let values: Vec<&i32> = queue.iter().collect();
         assert_eq!(values, vec![&1, &2, &3]);
-        
+
         // 迭代后队列不变
         assert_eq!(queue.len(), 3);
         assert_eq!(queue.pop(), Some(1));
@@ -301,18 +301,18 @@ mod tests {
     #[test]
     fn test_iterator_after_wrap() {
         let mut queue: CircularQueue<i32, 3> = CircularQueue::new();
-        
+
         // 填满并部分移除
         queue.push(1).unwrap();
         queue.push(2).unwrap();
         queue.push(3).unwrap();
         queue.pop();
         queue.pop();
-        
+
         // 再添加（发生循环）
         queue.push(4).unwrap();
         queue.push(5).unwrap();
-        
+
         let values: Vec<&i32> = queue.iter().collect();
         assert_eq!(values, vec![&3, &4, &5]);
     }
@@ -320,13 +320,13 @@ mod tests {
     #[test]
     fn test_clear() {
         let mut queue: CircularQueue<i32, 4> = CircularQueue::new();
-        
+
         queue.push(1).unwrap();
         queue.push(2).unwrap();
         queue.push(3).unwrap();
-        
+
         queue.clear();
-        
+
         assert!(queue.is_empty());
         assert_eq!(queue.len(), 0);
         assert_eq!(queue.pop(), None);
@@ -335,11 +335,11 @@ mod tests {
     #[test]
     fn test_get() {
         let mut queue: CircularQueue<i32, 4> = CircularQueue::new();
-        
+
         queue.push(10).unwrap();
         queue.push(20).unwrap();
         queue.push(30).unwrap();
-        
+
         assert_eq!(queue.get(0), Some(&10));
         assert_eq!(queue.get(1), Some(&20));
         assert_eq!(queue.get(2), Some(&30));
@@ -349,20 +349,20 @@ mod tests {
     #[test]
     fn test_exact_size_iterator() {
         let mut queue: CircularQueue<i32, 5> = CircularQueue::new();
-        
+
         queue.push(1).unwrap();
         queue.push(2).unwrap();
         queue.push(3).unwrap();
-        
+
         let mut iter = queue.iter();
         assert_eq!(iter.len(), 3);
-        
+
         iter.next();
         assert_eq!(iter.len(), 2);
-        
+
         iter.next();
         assert_eq!(iter.len(), 1);
-        
+
         iter.next();
         assert_eq!(iter.len(), 0);
     }
