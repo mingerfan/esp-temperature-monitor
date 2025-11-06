@@ -1,10 +1,11 @@
 mod info;
+mod peripherals;
 mod utils;
-use esp_idf_sys::esp;
-use info::info_def::InfoSlot;
-use info::info_storage::InfoStorage;
+use esp_idf_sys::{CONFIG_WL_SECTOR_SIZE, WL_INVALID_HANDLE, esp, wl_handle_t};
+use peripherals::temperature_sensor::GetInfoSlot;
 use std::thread::sleep;
 use std::time::Duration;
+use time::{format_description, OffsetDateTime};
 
 fn main() {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -16,90 +17,119 @@ fn main() {
 
     // let peripherals = Peripherals::take().unwrap();
 
-    let spiffs_cfg = esp_idf_sys::esp_vfs_spiffs_conf_t {
-        base_path: c"/spiffs".as_ptr(), // C 字符串字面量（Rust 1.77+）
-        partition_label: core::ptr::null(),
+    // spiffs
+    // let spiffs_cfg = esp_idf_sys::esp_vfs_spiffs_conf_t {
+    //     base_path: c"/spiffs".as_ptr(), // C 字符串字面量（Rust 1.77+）
+    //     partition_label: core::ptr::null(),
+    //     max_files: 5,
+    //     format_if_mount_failed: true,
+    // };
+
+    // let res = unsafe { esp_idf_sys::esp_vfs_spiffs_register(&spiffs_cfg) };
+    // if esp!(res).is_err() {
+    //     log::error!("Failed to mount SPIFFS");
+    //     return;
+    // }
+
+    // fatfs
+    let fatfs_cfg = esp_idf_sys::esp_vfs_fat_mount_config_t {
         max_files: 5,
         format_if_mount_failed: true,
+        allocation_unit_size: CONFIG_WL_SECTOR_SIZE as usize,
+        disk_status_check_enable: false,
     };
 
-    let res = unsafe { esp_idf_sys::esp_vfs_spiffs_register(&spiffs_cfg) };
-    esp!(res).unwrap();
-    let mut storage = match InfoStorage::new() {
-        Ok(storage) => storage,
-        Err(err) => {
-            log::error!("初始化 InfoStorage 失败: {err}");
+    let mut fat_handle: wl_handle_t = WL_INVALID_HANDLE;
+
+    let res = unsafe {
+        esp_idf_sys::esp_vfs_fat_spiflash_mount(
+            c"/fatfs".as_ptr(),
+            c"fatfs".as_ptr(),
+            &fatfs_cfg,
+            (&mut fat_handle) as *mut wl_handle_t,
+        )
+    };
+    if esp!(res).is_err() {
+        log::error!("Failed to mount FATFS");
+        return;
+    }
+    // 先执行一次写入测试
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        let test_file_path = "/fatfs/test";
+        let mut file = match OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(test_file_path)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                log::error!("创建测试文件失败: {e:?}");
+                return;
+            }
+        };
+        if let Err(e) = file.write_all(b"FATFS test\n") {
+            log::error!("写入测试文件失败: {e:?}");
+            return;
+        }
+        log::info!("FATFS 写入测试成功");
+        // 读取试试
+        drop(file); // 关闭文件
+        let content = match std::fs::read_to_string(test_file_path) {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("读取测试文件失败: {e:?}");
+                return;
+            }
+        };
+        log::info!("读取测试文件内容: {content}");
+        // 删除测试文件
+        if let Err(e) = std::fs::remove_file(test_file_path) {
+            log::error!("删除测试文件失败: {e:?}");
+            return;
+        }
+    }
+
+    let mut random_generator = utils::rand::RandomGenerator::new();
+    let mut time_db = match info::time_db::TimeDB::new("/fatfs/temperature_db", 1024) {
+        Ok(db) => db,
+        Err(e) => {
+            log::error!("创建时间序列数据库失败: {e:?}");
             return;
         }
     };
 
-    log::info!(
-        "持久化仓恢复完成，当前条目数 {}/{}",
-        storage.len(),
-        storage.capacity()
-    );
-
-    if let Ok(existing) = storage.load_all() {
-        if !existing.is_empty() {
-            let sample_count = existing.len().min(3);
-            for slot in existing.iter().rev().take(sample_count) {
-                log::info!("恢复条目: {}", format_slot(slot));
-            }
-        }
-    }
-
-    let mut counter: u32 = 0;
-
     loop {
-        let timestamp_secs = unsafe { esp_idf_sys::esp_timer_get_time() } / 1_000_000;
-        let timestamp = timestamp_secs as u32;
-        let temp_tenths = (((counter % 80) as i16) - 20) as i8;
-        let humidity_tenths = ((counter * 7) % 100) as u8;
-        let slot = InfoSlot::new(timestamp, temp_tenths, humidity_tenths);
+        log::info!("主循环: 读取传感器数据并打印");
+        let info_slot = random_generator.get_info_slot();
+        let time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let datetime_utc = OffsetDateTime::from_unix_timestamp(time);
 
-        match storage.enqueue(&slot) {
-            Ok(()) => log::info!(
-                "写入条目: {} (总量 {}/{})",
-                format_slot(&slot),
-                storage.len(),
-                storage.capacity()
-            ),
-            Err(err) => log::error!("写入环形存储失败: {err}"),
+        if datetime_utc.is_err() {
+            log::error!("获取当前时间失败");
+            continue;
         }
+        let datetime_utc = datetime_utc.unwrap();
+        let format = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
+        let datetime_str = datetime_utc.format(&format).unwrap();
 
-        if storage.len() > 30 {
-            match storage.dequeue() {
-                Ok(oldest) => log::info!("移除最旧条目: {}", format_slot(&oldest)),
-                Err(err) => log::warn!("移除最旧条目失败: {err}"),
-            }
+        println!("读取到传感器数据({datetime_str}): {info_slot}");
+        if time_db.insert(time + 100000, &info_slot).is_ok() {
+            log::info!("已将数据存入数据库");
+        } else {
+            log::error!("将数据存入数据库失败");
         }
+        sleep(Duration::from_secs(10));
 
-        let start_range = timestamp.saturating_sub(60);
-        match storage.find_range(start_range, timestamp) {
-            Ok(samples) => {
-                if let Some(latest) = samples.last() {
-                    log::info!(
-                        "最近一分钟共有 {} 条记录，最新: {}",
-                        samples.len(),
-                        format_slot(latest)
-                    );
-                } else {
-                    log::info!("最近一分钟没有匹配的记录");
-                }
-            }
-            Err(err) => log::warn!("查询范围失败: {err}"),
-        }
-
-        counter = counter.wrapping_add(1);
-        sleep(Duration::from_secs(1));
+        // 数据读取
+        // if let Some(latest_slot) = time_db.get_by_time(time, time).first() {
+        //     log::info!("最新数据: {latest_slot}");
+        // } else {
+        //     log::info!("数据库中无数据");
+        // }
     }
-}
-
-fn format_slot(slot: &InfoSlot) -> String {
-    format!(
-        "时间 {} 温度 {:.1}℃ 湿度 {:.1}%",
-        slot.get_unix_time(),
-        slot.get_temperature(),
-        slot.get_humidity()
-    )
 }

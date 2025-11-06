@@ -141,6 +141,7 @@ impl<T, const N: usize> CircularQueue<T, N> {
 
 impl<T: Clone, const N: usize> CircularQueue<T, N> {
     /// 返回指定索引位置的元素引用（0 表示队头）
+    #[allow(unused)]
     pub fn get(&self, index: usize) -> Option<&T> {
         let len = self.len();
         if index >= len {

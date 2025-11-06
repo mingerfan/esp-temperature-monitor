@@ -13,4 +13,6 @@ build-std = ["std", "panic_abort"]
 MCU="esp32c3"
 # Note: this variable is not used by the pio builder (`cargo build --features pio`)
 ESP_IDF_VERSION = "v5.2.3"
+# 添加工具链到 PATH，让 flashdb-rs 等第三方库能找到交叉编译器
+RISCV32_ESP_ELF_PATH = { value = ".embuild/espressif/tools/riscv32-esp-elf/esp-13.2.0_20230928/riscv32-esp-elf/bin", relative = true }
 
