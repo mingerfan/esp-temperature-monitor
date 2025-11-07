@@ -35,6 +35,8 @@ jobs:
         with:
           toolchain: nightly
           components: rust-src rustfmt clippy
+      - name: Export Env
+        run: source env.sh
       - name: Enable caching
         uses: Swatinem/rust-cache@v2
       - name: Install ldproxy
