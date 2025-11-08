@@ -5,7 +5,6 @@ mod service;
 use peripherals::temperature_sensor::GetInfoSlot;
 use std::thread::sleep;
 use std::time::Duration;
-use time::{format_description, OffsetDateTime};
 use service::ntp;
 
 use crate::peripherals::wifi::WifiBuilder;
@@ -88,22 +87,22 @@ fn main() {
     loop {
         log::info!("主循环: 读取传感器数据并打印");
         let info_slot = random_generator.get_info_slot();
-        let time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-        let datetime_utc = OffsetDateTime::from_unix_timestamp(time);
-
-        if datetime_utc.is_err() {
-            log::error!("获取当前时间失败");
-            continue;
-        }
-        let datetime_utc = datetime_utc.unwrap();
-        let format = format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
-        let datetime_str = datetime_utc.format(&format).unwrap();
+        // 使用 utils::time 获取 unix 时间戳
+        let time = match utils::time::get_unix_timestamp() {
+            Some(t) => t,
+            None => {
+                log::error!("获取当前时间失败");
+                continue;
+            }
+        };
+        // 使用 utils::time 格式化本地时间（东八区为 8*3600）
+        let datetime_str = utils::time::get_formatted_time(
+            "[year]-[month]-[day] [hour]:[minute]:[second]",
+            8 * 3600,
+        ).unwrap_or_else(|| "<时间格式化失败>".to_string());
 
         println!("读取到传感器数据({datetime_str}): {info_slot}");
-        if time_db.insert(time + 350, &info_slot).is_ok() {
+        if time_db.insert(time, &info_slot).is_ok() {
             log::info!("已将数据存入数据库");
         } else {
             log::error!("将数据存入数据库失败");
