@@ -1,12 +1,12 @@
-mod info;
+mod data;
 mod peripherals;
 mod utils;
-mod app;
+mod service;
 use peripherals::temperature_sensor::GetInfoSlot;
 use std::thread::sleep;
 use std::time::Duration;
 use time::{format_description, OffsetDateTime};
-use app::ntp;
+use service::ntp;
 
 use crate::peripherals::wifi::WifiBuilder;
 
@@ -28,7 +28,7 @@ fn main() {
     };
 
     let mut random_generator = utils::rand::RandomGenerator::new();
-    let mut time_db = match info::time_db::TimeDB::new("temperature_db", 4096, true) {
+    let mut time_db = match data::time_db::TimeDB::new("temperature_db", 4096, true) {
         Ok(db) => db,
         Err(e) => {
             log::error!("创建时间序列数据库失败: {e:?}");

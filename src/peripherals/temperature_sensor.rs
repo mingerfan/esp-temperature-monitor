@@ -1,4 +1,4 @@
-use crate::info::info_def;
+use crate::data::info_def;
 use crate::utils::rand;
 
 
