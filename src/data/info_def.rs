@@ -3,8 +3,8 @@ use core::fmt;
 #[repr(C, align(4))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InfoSlot {
-    temperature: i8,
-    humidity: u8,
+    temperature: i16,
+    humidity: u16,
 }
 
 impl fmt::Display for InfoSlot {
@@ -30,9 +30,12 @@ impl InfoSlot {
     // }
 
     pub fn new_from_f32(temperature: f32, humidity: f32) -> Self {
+        log::info!(
+            "Creating InfoSlot from f32: temperature = {temperature:.1}, humidity = {humidity:.1}"
+        );
         Self {
-            temperature: (temperature * 10.0) as i8,
-            humidity: (humidity * 10.0) as u8,
+            temperature: (temperature * 10.0) as i16,
+            humidity: (humidity * 10.0) as u16,
         }
     }
 

@@ -2,12 +2,14 @@ mod data;
 mod peripherals;
 mod utils;
 mod service;
-use peripherals::temperature_sensor::GetInfoSlot;
+use esp_idf_svc::hal::gpio::PinDriver;
 use std::thread::sleep;
 use std::time::Duration;
 use service::ntp;
 
 use crate::peripherals::wifi::WifiBuilder;
+use crate::peripherals::temperature_sensor::TemperatureSensor;
+// use embedded_hal::digital::{InputPin, OutputPin, PinState};
 
 include!("../.env/config.rs");
 
@@ -26,8 +28,8 @@ fn main() {
         return;
     };
 
-    let mut random_generator = utils::rand::RandomGenerator::new();
-    let mut time_db = match data::time_db::TimeDB::new("temperature_db", 4096, true) {
+    // let mut random_generator = utils::rand::RandomGenerator::new();
+    let mut time_db = match data::time_db::TimeDB::new("temperature_db", 4096 * 5, true) {
         Ok(db) => db,
         Err(e) => {
             log::error!("创建时间序列数据库失败: {e:?}");
@@ -83,10 +85,37 @@ fn main() {
         }
     }
 
+    let pin5: esp_idf_svc::hal::gpio::AnyIOPin = peripherals.pins.gpio5.into();
+    let pin5 = match PinDriver::input_output_od(pin5) {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("初始化 GPIO19 失败: {e:?}");
+            return;
+        }
+    };
+    
+    let mut temperature_sensor = match TemperatureSensor::new(pin5) {
+        Ok(sensor) => sensor,
+        Err(e) => {
+            log::error!("初始化温度传感器失败: {e:?}");
+            return;
+        }
+    };
+
     let mut cnt = 15;
     loop {
         log::info!("主循环: 读取传感器数据并打印");
-        let info_slot = random_generator.get_info_slot();
+        // let info_slot = random_generator.get_info_slot();
+        
+        let info_slot = match temperature_sensor.read_data() {
+            Ok(data) => data,
+            Err(e) => {
+                log::error!("读取温度传感器数据失败: {e:?}");
+                sleep(Duration::from_secs(5));
+                continue;
+            }
+        };
+
         // 使用 utils::time 获取 unix 时间戳
         let time = match utils::time::get_unix_timestamp() {
             Some(t) => t,
@@ -107,7 +136,7 @@ fn main() {
         } else {
             log::error!("将数据存入数据库失败");
         }
-        sleep(Duration::from_secs(1));
+        sleep(Duration::from_secs(5));
 
         // 数据读取
         if let Some(latest_slot) = time_db.latest() {
