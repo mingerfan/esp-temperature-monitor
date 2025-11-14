@@ -41,6 +41,8 @@ time = { version = "0.3", default-features = false, features = ["formatting"] }
 embedded-storage = "0.3.1"
 embedded-io = "0.6.1"
 embedded-dht-rs = { version = "0.5.0", features = ["dht22"] }
+ssd1306 = "0.10.0"
+embedded-graphics = "0.8.1"
 
 # --- Optional Embassy Integration ---
 # esp-idf-svc = { version = "0.51", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
