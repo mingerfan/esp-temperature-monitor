@@ -13,7 +13,7 @@ use embedded_graphics::{
 
 type IOPinDriver = PinDriver<'static, gpio::AnyIOPin, InputOutput>;
 
-struct Screen<SPI: SpiDevice> {
+pub struct Screen<SPI: SpiDevice> {
     driver: Ssd1306<SPIInterface<SPI, IOPinDriver>, DisplaySize128x64, ssd1306::mode::BufferedGraphicsMode<DisplaySize128x64>>,
 }
 
