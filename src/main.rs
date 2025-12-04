@@ -2,7 +2,6 @@ mod data;
 mod peripherals;
 mod utils;
 mod service;
-use anyhow::Ok;
 use esp_idf_svc::hal::gpio::{AnyIOPin, PinDriver};
 use esp_idf_svc::hal::spi::{SPI2, SpiDeviceDriver};
 use std::thread::sleep;
@@ -32,138 +31,110 @@ fn main() -> anyhow::Result<()> {
     // };
 
     let peripherals = esp_idf_svc::hal::peripherals::Peripherals::take()?;
+    let pins = peripherals.pins;
 
-    // // let mut random_generator = utils::rand::RandomGenerator::new();
-    // let mut time_db = match data::time_db::TimeDB::new("temperature_db", 4096 * 5, true) {
-    //     Ok(db) => db,
-    //     Err(e) => {
-    //         log::error!("创建时间序列数据库失败: {e:?}");
-    //         return;
-    //     }
-    // };
+    // let mut random_generator = utils::rand::RandomGenerator::new();
+    let mut time_db = data::time_db::TimeDB::new("temperature_db", 4096 * 5, true)?;
 
-    // // wifi 连接
-    // let wifi_buider = WifiBuilder::new(WIFI_SSID, WIFI_PASSWORD);
-    // let sysloop = if let Ok(x) = esp_idf_svc::eventloop::EspSystemEventLoop::take() {
-    //     x
-    // } else {
-    //     log::error!("获取系统事件循环失败");
-    //     return;
-    // };
+    // wifi 连接
+    let wifi_buider = WifiBuilder::new(WIFI_SSID, WIFI_PASSWORD);
+    let sysloop = esp_idf_svc::eventloop::EspSystemEventLoop::take()?;
 
-    // let modem = peripherals.modem;
+    let modem = peripherals.modem;
 
-    // let wifi = match wifi_buider.build(modem, sysloop) {
-    //     Ok(wifi) => wifi,
-    //     Err(e) => {
-    //         log::error!("WiFi 连接失败: {e:?}");
-    //         return;
-    //     }
-    // };
-    // log::info!("WiFi 已连接, IP 地址: {:?}", wifi.get_configuration());
+    let wifi = wifi_buider.build(modem, sysloop)?;
+    log::info!("WiFi 已连接, IP 地址: {:?}", wifi.get_configuration());
     
-    // // 等待网络完全就绪
-    // log::info!("等待网络稳定...");
-    // sleep(Duration::from_secs(2));
+    // 等待网络完全就绪
+    log::info!("等待网络稳定...");
+    sleep(Duration::from_secs(2));
     
-    // // 测试网络连接
-    // if !ntp::test_network_connectivity() {
-    //     log::error!("网络连接不可用，跳过 NTP 同步");
-    //     // 继续运行，但不同步时间
-    // } else {
-    //     // 尝试同步时间
-    //     log::info!("开始 NTP 时间同步...");
-    //     let ntp_res = ntp::NtpConfig::new()
-    //         .china_servers()
-    //         .timeout(30)  // 增加超时时间到 30 秒
-    //         .wait_for_sync(true)
-    //         .init();
+    // 测试网络连接
+    if !ntp::test_network_connectivity() {
+        log::error!("网络连接不可用，跳过 NTP 同步");
+        // 继续运行，但不同步时间
+    } else {
+        // 尝试同步时间
+        log::info!("开始 NTP 时间同步...");
+        let ntp_res = ntp::NtpConfig::new()
+            .china_servers()
+            .timeout(30)  // 增加超时时间到 30 秒
+            .wait_for_sync(true)
+            .init();
 
-    //     match ntp_res {
-    //         Ok(_sntp) => {
-    //             log::info!("✅ NTP 时间同步成功");
-    //         }
-    //         Err(e) => {
-    //             log::warn!("⚠️  NTP 时间同步失败: {e:?}，程序将继续运行");
-    //             log::info!("💡 提示：可以尝试使用全局 NTP 服务器");
-    //         }
-    //     }
-    // }
+        match ntp_res {
+            Ok(_sntp) => {
+                log::info!("✅ NTP 时间同步成功");
+            }
+            Err(e) => {
+                log::warn!("⚠️  NTP 时间同步失败: {e:?}，程序将继续运行");
+                log::info!("💡 提示：可以尝试使用全局 NTP 服务器");
+            }
+        }
+    }
 
-    // let pin5: esp_idf_svc::hal::gpio::AnyIOPin = peripherals.pins.gpio5.into();
-    // let pin5 = match PinDriver::input_output_od(pin5) {
-    //     Ok(p) => p,
-    //     Err(e) => {
-    //         log::error!("初始化 GPIO19 失败: {e:?}");
-    //         return;
-    //     }
-    // };
+    let pin5: esp_idf_svc::hal::gpio::AnyIOPin = pins.gpio5.into();
+    let pin5 = PinDriver::input_output_od(pin5)?;
     
-    // let mut temperature_sensor = match TemperatureSensor::new(pin5) {
-    //     Ok(sensor) => sensor,
-    //     Err(e) => {
-    //         log::error!("初始化温度传感器失败: {e:?}");
-    //         return;
-    //     }
-    // };
+    let mut temperature_sensor = TemperatureSensor::new(pin5)?;
 
-    // let mut cnt = 15;
-    // loop {
-    //     log::info!("主循环: 读取传感器数据并打印");
-    //     // let info_slot = random_generator.get_info_slot();
+    let mut cnt = 3;
+    loop {
+        log::info!("主循环: 读取传感器数据并打印");
+        // let info_slot = random_generator.get_info_slot();
         
-    //     let info_slot = match temperature_sensor.read_data() {
-    //         Ok(data) => data,
-    //         Err(e) => {
-    //             log::error!("读取温度传感器数据失败: {e:?}");
-    //             sleep(Duration::from_secs(5));
-    //             continue;
-    //         }
-    //     };
+        let info_slot = match temperature_sensor.read_data() {
+            Ok(slot) => slot,
+            Err(e) => {
+                log::error!("读取传感器数据失败: {e}");
+                sleep(Duration::from_secs(5));
+                continue;
+            }
+        };
 
-    //     // 使用 utils::time 获取 unix 时间戳
-    //     let time = match utils::time::get_unix_timestamp() {
-    //         Some(t) => t,
-    //         None => {
-    //             log::error!("获取当前时间失败");
-    //             continue;
-    //         }
-    //     };
-    //     // 使用 utils::time 格式化本地时间（东八区为 8*3600）
-    //     let datetime_str = utils::time::get_formatted_time(
-    //         "[year]-[month]-[day] [hour]:[minute]:[second]",
-    //         8 * 3600,
-    //     ).unwrap_or_else(|| "<时间格式化失败>".to_string());
+        // 使用 utils::time 获取 unix 时间戳
+        let time = match utils::time::get_unix_timestamp() {
+            Some(t) => t,
+            None => {
+                log::error!("获取当前时间失败");
+                continue;
+            }
+        };
+        // 使用 utils::time 格式化本地时间（东八区为 8*3600）
+        let datetime_str = utils::time::get_formatted_time(
+            "[year]-[month]-[day] [hour]:[minute]:[second]",
+            8 * 3600,
+        ).unwrap_or_else(|| "<时间格式化失败>".to_string());
 
-    //     println!("读取到传感器数据({datetime_str}): {info_slot}");
-    //     if time_db.insert(time, &info_slot).is_ok() {
-    //         log::info!("已将数据存入数据库");
-    //     } else {
-    //         log::error!("将数据存入数据库失败");
-    //     }
-    //     sleep(Duration::from_secs(5));
+        println!("读取到传感器数据({datetime_str}): {info_slot}");
+        if time_db.insert(time, &info_slot).is_ok() {
+            log::info!("已将数据存入数据库");
+        } else {
+            log::error!("将数据存入数据库失败");
+        }
+        sleep(Duration::from_secs(5));
 
-    //     // 数据读取
-    //     if let Some(latest_slot) = time_db.latest() {
-    //         log::info!("最新数据: {latest_slot}");
-    //     } else {
-    //         log::info!("数据库中无数据");
-    //     }
-    //     cnt -= 1;
-    //     if cnt == 0 {
-    //         break;
-    //     }
-    // }
+        // 数据读取
+        if let Some(latest_slot) = time_db.latest() {
+            log::info!("最新数据: {latest_slot}");
+        } else {
+            log::info!("数据库中无数据");
+        }
+        cnt -= 1;
+        if cnt == 0 {
+            break;
+        }
+    }
 
-    // // 打印所有温度数据
+    // 打印所有温度数据
     // let all_data = time_db.get_all_data();
     // println!("数据库中所有温度数据，共 {} 条:", all_data.len());
     // for slot in all_data {
     //     println!("{slot}");
     // }
 
-    // esp_idf_svc::hal::spi::SpiDriver
-    let pins = peripherals.pins;
+    // peripherals 已经在开头获取过了，这里直接使用
+    // 注意：peripherals.pins 已经被部分移动 (gpio5)，不能整体移动 let pins = peripherals.pins;
     let sck = pins.gpio2;
     let mosi = pins.gpio0;
     let cs = pins.gpio18;
