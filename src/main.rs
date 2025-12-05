@@ -2,6 +2,8 @@ mod data;
 mod peripherals;
 mod utils;
 mod service;
+mod config;
+mod macros;
 
 use std::thread::sleep;
 use std::time::Duration;
@@ -22,15 +24,8 @@ fn main() -> anyhow::Result<()> {
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    // let peripherals = if let Ok(p) = esp_idf_svc::hal::peripherals::Peripherals::take() {
-    //     p
-    // } else {
-    //     log::error!("获取外设失败");
-    //     return;
-    // };
-
-    let peripherals = esp_idf_svc::hal::peripherals::Peripherals::take()?;
-    let pins = peripherals.pins;
+    // 使用配置系统获取外设
+    let peripherals = configure_peripherals!();
 
     // let mut random_generator = utils::rand::RandomGenerator::new();
     let mut time_db = data::time_db::TimeDB::new("temperature_db", 4096 * 5, true)?;
@@ -39,7 +34,7 @@ fn main() -> anyhow::Result<()> {
     let wifi_buider = WifiBuilder::new(WIFI_SSID, WIFI_PASSWORD);
     let sysloop = esp_idf_svc::eventloop::EspSystemEventLoop::take()?;
 
-    let wifi = wifi_buider.build(peripherals.modem, sysloop)?;
+    let wifi = wifi_buider.build(peripherals.peripherals.modem, sysloop)?;
     log::info!("WiFi 已连接, IP 地址: {:?}", wifi.get_configuration());
     
     // 等待网络完全就绪
@@ -70,7 +65,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let mut temperature_sensor = TemperatureSensor::from_pin(pins.gpio5)?;
+    let mut temperature_sensor = TemperatureSensor::from_pin(peripherals.temperature_pin)?;
 
     let mut cnt = 3;
     loop {
@@ -129,11 +124,11 @@ fn main() -> anyhow::Result<()> {
 
     // 使用 ScreenBuilder 创建屏幕实例
     let mut screen = ScreenBuilder::with_pins(
-        peripherals.spi2,
-        pins.gpio2,  // SCK
-        pins.gpio0,  // MOSI
-        pins.gpio18, // CS
-        pins.gpio12, // DC
+        peripherals.peripherals.spi2,
+        peripherals.spi_sck,  // SCK
+        peripherals.spi_mosi, // MOSI
+        peripherals.spi_cs,   // CS
+        peripherals.spi_dc,   // DC
     )?;
 
     screen.draw_example()?;
