@@ -23,22 +23,6 @@ pub struct PinConfig {
     pub spi_dc: u8,
 }
 
-/// 默认引脚配置
-/// 
-/// 使用项目当前的引脚分配：
-/// - 温度传感器: GPIO5
-/// - SPI SCK: GPIO2
-/// - SPI MOSI: GPIO0
-/// - SPI CS: GPIO18
-/// - SPI DC: GPIO12
-pub const PIN_CONFIG: PinConfig = PinConfig {
-    temperature_sensor: 5,
-    spi_sck: 2,
-    spi_mosi: 0,
-    spi_cs: 18,
-    spi_dc: 12,
-};
-
 /// 验证引脚配置的有效性
 /// 
 /// # 参数
@@ -76,5 +60,3 @@ pub fn validate_config(config: &PinConfig) -> Result<(), String> {
     
     Ok(())
 }
-
-

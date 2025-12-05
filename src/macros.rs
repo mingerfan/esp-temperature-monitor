@@ -17,7 +17,7 @@
 #[macro_export]
 macro_rules! configure_peripherals {
     () => {{
-        use $crate::config::{GPIOManager, pins::PIN_CONFIG};
+        use $crate::config::{GPIOManager, PIN_CONFIG};
         
         let manager = match GPIOManager::new() {
             Ok(manager) => manager,
