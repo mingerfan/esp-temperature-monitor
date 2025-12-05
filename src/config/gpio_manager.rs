@@ -1,6 +1,6 @@
-//! 外设管理器
+//! GPIO 引脚管理器
 //! 
-//! 安全地管理外设和引脚的所有权，防止冲突使用
+//! 安全地管理 GPIO 引脚的所有权，防止冲突使用
 
 use esp_idf_svc::hal::{
     gpio::AnyIOPin,
@@ -12,14 +12,10 @@ use thiserror::Error;
 
 use crate::config::pins::PinConfig;
 
-/// 外设配置集合
+/// GPIO 引脚配置
 /// 
-/// 包含所有已配置的外设和引脚，所有权已从管理器转移
-pub struct PeripheralConfig {
-    /// 完整的 Peripherals 对象，包含所有外设
-    /// 注意：这个对象的所有权已被转移，不能再调用 take() 方法
-    pub peripherals: Peripherals,
-    
+/// 包含所有已配置的 GPIO 引脚，所有权已从管理器转移
+pub struct GPIOConfig {
     /// 温度传感器引脚
     pub temperature_pin: AnyIOPin,
     
@@ -36,62 +32,60 @@ pub struct PeripheralConfig {
     pub spi_dc: AnyIOPin,
 }
 
-/// 外设管理器错误类型
+/// GPIO 管理器错误类型
 #[derive(Debug, Error)]
-pub enum PeripheralError {
+pub enum GPIOError {
     #[error("引脚 {0} 已被使用")]
     PinAlreadyUsed(u8),
     
     #[error("无效的引脚编号: {0}")]
     InvalidPin(u8),
     
-    #[allow(unused)]
-    #[error("SPI2 已被使用")]
-    SpiAlreadyUsed,
-    
-    #[error("外设初始化失败: {0}")]
-    PeripheralInit(String),
+    #[error("GPIO 初始化失败: {0}")]
+    GPIOInit(String),
 }
 
-/// 外设管理器
+/// GPIO 引脚管理器
 /// 
-/// 安全地管理外设和引脚的所有权，使用 `clone_unchecked()` 允许多次访问，
-/// 同时跟踪已使用的资源防止冲突。
-pub struct PeripheralManager {
+/// 安全地管理 GPIO 引脚的所有权，使用 `clone_unchecked()` 允许多次访问，
+/// 同时跟踪已使用的引脚防止冲突。
+pub struct GPIOManager {
     peripherals: Peripherals,
     used_pins: HashSet<u8>,
-    spi2_used: bool,
 }
 
-impl PeripheralManager {
-    /// 创建新的外设管理器
+impl GPIOManager {
+    /// 创建新的 GPIO 管理器
     /// 
     /// # 返回
     /// * `Ok(Self)` - 管理器创建成功
-    /// * `Err(PeripheralError)` - 外设初始化失败
-    pub fn new() -> Result<Self, PeripheralError> {
+    /// * `Err(GPIOError)` - 初始化失败
+    pub fn new() -> Result<Self, GPIOError> {
         let peripherals = Peripherals::take()
-            .map_err(|e| PeripheralError::PeripheralInit(format!("获取外设失败: {e}")))?;
+            .map_err(|e| GPIOError::GPIOInit(format!("获取外设失败: {e}")))?;
             
         Ok(Self {
             peripherals,
             used_pins: HashSet::new(),
-            spi2_used: false,
         })
     }
     
-    /// 根据引脚配置获取所有外设
+    /// 根据引脚配置获取 GPIO 引脚和完整的外设对象
     /// 
     /// # 参数
     /// * `config` - 引脚配置
     /// 
     /// # 返回
-    /// * `Ok(PeripheralConfig)` - 外设配置集合
-    /// * `Err(PeripheralError)` - 配置失败
-    pub fn configure(mut self, config: &PinConfig) -> Result<PeripheralConfig, PeripheralError> {
+    /// * `Ok((Peripherals, GPIOConfig))` - 成功获取外设和 GPIO 配置
+    /// * `Err(GPIOError)` - 配置失败
+    /// 
+    /// 返回一个元组，包含：
+    /// 1. 完整的 `Peripherals` 对象（用于访问 modem、SPI2 等其他外设）
+    /// 2. `GPIOConfig` 对象（包含所有已配置的 GPIO 引脚）
+    pub fn configure(mut self, config: &PinConfig) -> Result<(Peripherals, GPIOConfig), GPIOError> {
         // 验证配置
         crate::config::pins::validate_config(config)
-            .map_err(PeripheralError::PeripheralInit)?;
+            .map_err(GPIOError::GPIOInit)?;
         
         // 获取所有需要的引脚
         let temperature_pin = self.take_gpio(config.temperature_sensor)?;
@@ -100,17 +94,16 @@ impl PeripheralManager {
         let spi_cs = self.take_gpio(config.spi_cs)?;
         let spi_dc = self.take_gpio(config.spi_dc)?;
         
-        // 标记 SPI2 为已使用
-        self.spi2_used = true;
-        
-        Ok(PeripheralConfig {
-            peripherals: self.peripherals,
-            temperature_pin,
-            spi_sck,
-            spi_mosi,
-            spi_cs,
-            spi_dc,
-        })
+        Ok((
+            self.peripherals,
+            GPIOConfig {
+                temperature_pin,
+                spi_sck,
+                spi_mosi,
+                spi_cs,
+                spi_dc,
+            }
+        ))
     }
     
     /// 安全地获取 GPIO 引脚
@@ -122,11 +115,11 @@ impl PeripheralManager {
     /// 
     /// # 返回
     /// * `Ok(AnyIOPin)` - 引脚获取成功
-    /// * `Err(PeripheralError)` - 引脚已被使用或无效
-    pub fn take_gpio(&mut self, pin_num: u8) -> Result<AnyIOPin, PeripheralError> {
+    /// * `Err(GPIOError)` - 引脚已被使用或无效
+    pub fn take_gpio(&mut self, pin_num: u8) -> Result<AnyIOPin, GPIOError> {
         // 检查引脚是否已被使用
         if self.used_pins.contains(&pin_num) {
-            return Err(PeripheralError::PinAlreadyUsed(pin_num));
+            return Err(GPIOError::PinAlreadyUsed(pin_num));
         }
         
         // 获取引脚并转换为 AnyIOPin
@@ -154,7 +147,7 @@ impl PeripheralManager {
             19 => unsafe { self.peripherals.pins.gpio19.clone_unchecked() }.into(),
             21 => unsafe { self.peripherals.pins.gpio21.clone_unchecked() }.into(),
             // 注意：某些 GPIO 引脚可能不可用，根据实际硬件调整
-            _ => return Err(PeripheralError::InvalidPin(pin_num)),
+            _ => return Err(GPIOError::InvalidPin(pin_num)),
         };
         
         // 标记引脚为已使用
