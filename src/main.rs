@@ -2,13 +2,12 @@ mod data;
 mod peripherals;
 mod utils;
 mod service;
-use esp_idf_svc::hal::gpio::{AnyIOPin, PinDriver};
-use esp_idf_svc::hal::spi::{SPI2, SpiDeviceDriver};
+
 use std::thread::sleep;
 use std::time::Duration;
 use service::ntp;
 
-use crate::peripherals::screen::Screen;
+use crate::peripherals::screen::ScreenBuilder;
 use crate::peripherals::wifi::WifiBuilder;
 use crate::peripherals::temperature_sensor::TemperatureSensor;
 // use embedded_hal::digital::{InputPin, OutputPin, PinState};
@@ -40,9 +39,7 @@ fn main() -> anyhow::Result<()> {
     let wifi_buider = WifiBuilder::new(WIFI_SSID, WIFI_PASSWORD);
     let sysloop = esp_idf_svc::eventloop::EspSystemEventLoop::take()?;
 
-    let modem = peripherals.modem;
-
-    let wifi = wifi_buider.build(modem, sysloop)?;
+    let wifi = wifi_buider.build(peripherals.modem, sysloop)?;
     log::info!("WiFi 已连接, IP 地址: {:?}", wifi.get_configuration());
     
     // 等待网络完全就绪
@@ -73,10 +70,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    let pin5: esp_idf_svc::hal::gpio::AnyIOPin = pins.gpio5.into();
-    let pin5 = PinDriver::input_output_od(pin5)?;
-    
-    let mut temperature_sensor = TemperatureSensor::new(pin5)?;
+    let mut temperature_sensor = TemperatureSensor::from_pin(pins.gpio5)?;
 
     let mut cnt = 3;
     loop {
@@ -133,27 +127,14 @@ fn main() -> anyhow::Result<()> {
     //     println!("{slot}");
     // }
 
-    // peripherals 已经在开头获取过了，这里直接使用
-    // 注意：peripherals.pins 已经被部分移动 (gpio5)，不能整体移动 let pins = peripherals.pins;
-    let sck = pins.gpio2;
-    let mosi = pins.gpio0;
-    let cs = pins.gpio18;
-    let dc = pins.gpio12;
-    let driver_config = esp_idf_svc::hal::spi::SpiDriverConfig::new();
-    let config = esp_idf_svc::hal::spi::SpiConfig::new()
-        .write_only(true);
-
-    let spi = esp_idf_svc::hal::spi::SpiDriver::new(
+    // 使用 ScreenBuilder 创建屏幕实例
+    let mut screen = ScreenBuilder::with_pins(
         peripherals.spi2,
-        sck,
-        mosi,
-        Option::<AnyIOPin>::None,
-        &driver_config,
+        pins.gpio2,  // SCK
+        pins.gpio0,  // MOSI
+        pins.gpio18, // CS
+        pins.gpio12, // DC
     )?;
-
-    let spi = SpiDeviceDriver::new(spi, cs.into(), &config)?;
-
-    let mut screen = Screen::new(spi, dc.into())?;
 
     screen.draw_example()?;
 

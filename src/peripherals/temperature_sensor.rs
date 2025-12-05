@@ -1,30 +1,38 @@
 use crate::data::info_def::InfoSlot;
 use embedded_dht_rs::dht22::Dht22;
-use esp_idf_svc::hal::{delay::Ets, gpio::PinDriver};
+use esp_idf_svc::hal::{
+    delay::Ets,
+    gpio::{AnyIOPin, PinDriver},
+};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum TemperatureSensorError {
     #[error("传感器读取失败: {0}")]
     Read(String),
+    #[error("Pin 配置失败: {0}")]
+    PinConfig(#[from] esp_idf_svc::sys::EspError),
 }
 
 /// 温度传感器封装，目前支持 DHT22
 pub struct TemperatureSensor {
-    dht22: Dht22<PinDriver<'static, esp_idf_svc::hal::gpio::AnyIOPin, esp_idf_svc::hal::gpio::InputOutput>, Ets>,
+    dht22: Dht22<PinDriver<'static, AnyIOPin, esp_idf_svc::hal::gpio::InputOutput>, Ets>,
 }
 
 impl TemperatureSensor {
-    /// 创建新的温度传感器实例
+    /// 从单个 GPIO pin 创建温度传感器实例
+    /// 
+    /// 默认推荐使用 GPIO5 作为 DHT22 数据引脚
     /// 
     /// # Arguments
-    /// * `pin` - DHT22 数据引脚
+    /// * `data_pin` - DHT22 数据引脚
     /// 
     /// # Returns
     /// * `Result<Self, TemperatureSensorError>` - 成功返回传感器实例，失败返回错误
-    pub fn new(
-        pin: PinDriver<'static, esp_idf_svc::hal::gpio::AnyIOPin, esp_idf_svc::hal::gpio::InputOutput>,
-    ) -> Result<Self, TemperatureSensorError> {
+    pub fn from_pin(data_pin: impl Into<AnyIOPin>) -> Result<Self, TemperatureSensorError> {
+        // 配置 GPIO pin 为输入输出开漏模式
+        let pin: AnyIOPin = data_pin.into();
+        let pin = PinDriver::input_output_od(pin)?;
         let dht22 = Dht22::new(pin, Ets);
         
         Ok(Self { dht22 })
