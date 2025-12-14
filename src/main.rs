@@ -100,19 +100,8 @@ fn main() -> anyhow::Result<()> {
                 continue;
             }
         };
-        // 使用 utils::time 格式化本地时间（东八区为 8*3600）
-        let datetime_str = utils::time::get_formatted_time(
-            "[year]-[month]-[day] [hour]:[minute]:[second]",
-            8 * 3600,
-        )
-        .unwrap_or_else(|| "<时间格式化失败>".to_string());
 
-        // 绘制时间
-        screen.clear()?;
-        let day_pos = screen::to_point(1, 7);
-        screen.draw_text(&datetime_str[2..], day_pos)?;
-
-        println!("读取到传感器数据({datetime_str}): {info_slot}");
+        println!("读取到传感器数据: {info_slot}");
         if time_db.insert(time, &info_slot).is_ok() {
             log::info!("已将数据存入数据库");
         } else {
@@ -126,11 +115,27 @@ fn main() -> anyhow::Result<()> {
             info_slot.get_humidity()
         );
         let temp_hum_pos = screen::to_point(15, 30);
-        screen.draw_text_big(&temp_hum_str, temp_hum_pos)?;
 
-        screen.flush()?;
+        // 实时显示秒数更新，每秒刷新一次屏幕，5秒后再读取新数据
+        for _ in 0..5 {
+            // 使用 utils::time 格式化本地时间（东八区为 8*3600）
+            let datetime_str = utils::time::get_formatted_time(
+                "[year]-[month]-[day] [hour]:[minute]:[second]",
+                8 * 3600,
+            )
+            .unwrap_or_else(|| "<时间格式化失败>".to_string());
 
-        sleep(Duration::from_secs(5));
+            // 绘制时间
+            screen.clear()?;
+            let day_pos = screen::to_point(1, 7);
+            screen.draw_text(&datetime_str[2..], day_pos)?;
+
+            // 绘制温度与湿度
+            screen.draw_text_big(&temp_hum_str, temp_hum_pos)?;
+            screen.flush()?;
+
+            sleep(Duration::from_millis(1000));
+        }
 
         // 数据读取
         if let Some(latest_slot) = time_db.latest() {
