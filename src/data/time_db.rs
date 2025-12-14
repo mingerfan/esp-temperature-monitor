@@ -7,6 +7,10 @@ use embedded_io::Read;
 
 pub struct TimeDB {
     db: Box<TSDB<flash::Flash>>,
+    max_size: usize,
+    slot_size: usize,
+    /// 容量警戒线百分比 (0-100)，默认为 80%
+    capacity_threshold: f32,
 }
 
 impl TimeDB {
@@ -42,13 +46,79 @@ impl TimeDB {
         let mut db = Box::new(TSDB::new(storage));
         db.set_name(name)?;
         db.init(slots_size)?;
-        Ok(TimeDB { db })
+        Ok(TimeDB { 
+            db,
+            max_size,
+            slot_size: slots_size,
+            capacity_threshold: 80.0, // 默认 80% 触发清理
+        })
     }
 
     pub fn insert(&mut self, timestamp: i64, value: &info_def::InfoSlot) -> Result<()> {
+        // 检查容量，如果需要则清理最旧的数据
+        self.cleanup_if_needed()?;
+        
         let data = value.as_bytes();
         self.db.append_with_timestamp(timestamp, data)?;
         Ok(())
+    }
+
+    /// 计算当前数据库的使用大小（字节）
+    fn get_current_size(&mut self) -> usize {
+        let mut size = 0;
+        self.db.tsdb_iter(|_db, _tsl| {
+            size += self.slot_size;
+            true
+        }, false);
+        size
+    }
+
+    /// 如果容量超过警戒线，标记最旧的数据块为删除
+    /// 采用标记方式，实际删除由 flashdb_rs 异步处理
+    fn cleanup_if_needed(&mut self) -> Result<()> {
+        let current_size = self.get_current_size();
+        let threshold_size = (self.max_size as f32 * self.capacity_threshold / 100.0) as usize;
+
+        if current_size >= threshold_size {
+            log::warn!(
+                "数据库容量接近上限 (当前: {}B, 警戒线: {}B), 开始清理最旧的数据",
+                current_size, threshold_size
+            );
+            
+            // 标记最旧的 10% 的数据为删除
+            let cleanup_size = (self.max_size as f32 * 0.1) as usize;
+            let mut cleaned_size = 0;
+            let mut cleanup_count = 0;
+
+            self.db.tsdb_iter(|db, tsl| {
+                if cleaned_size >= cleanup_size {
+                    return false; // 停止迭代
+                }
+                
+                match db.set_status(tsl, flashdb_rs::TSLStatus::Deleted) {
+                    Ok(_) => {
+                        cleaned_size += self.slot_size;
+                        cleanup_count += 1;
+                    }
+                    Err(e) => {
+                        log::error!("标记数据为删除失败: {e:?}");
+                    }
+                }
+                true
+            }, false); // false 表示从最旧的开始迭代
+
+            log::info!(
+                "已标记 {} 条记录为删除 (约 {}B)",
+                cleanup_count, cleaned_size
+            );
+        }
+
+        Ok(())
+    }
+
+    /// 设置容量警戒线百分比
+    pub fn set_capacity_threshold(&mut self, threshold: f32) {
+        self.capacity_threshold = threshold.max(1.0).min(100.0);
     }
 
     // pub fn get_by_time(&mut self, left: i64, right: i64) -> Vec<info_def::InfoSlot> {
