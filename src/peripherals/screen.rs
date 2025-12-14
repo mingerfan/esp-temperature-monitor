@@ -1,18 +1,27 @@
 use anyhow::Result;
+use embedded_graphics::mono_font::MonoFont;
+use embedded_graphics::primitives::PrimitiveStyle;
 use embedded_hal::spi::SpiDevice;
 use esp_idf_svc::hal::gpio::{self, AnyIOPin, InputOutput, PinDriver};
 use esp_idf_svc::hal::spi::{SPI2, SpiConfig, SpiDeviceDriver, SpiDriver, SpiDriverConfig};
 use ssd1306::{prelude::*, Ssd1306};
 use ssd1306::mode::DisplayConfig;
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
+    mono_font::{iso_8859_1::FONT_6X10, iso_8859_1::FONT_9X18_BOLD, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Circle, PrimitiveStyle},
     text::Text,
 };
 
 type IOPinDriver = PinDriver<'static, gpio::AnyIOPin, InputOutput>;
+
+pub fn to_point(x: i32, y: i32) -> Point {
+    Point::new(x, y)
+}
+
+pub fn to_size(width: u32, height: u32) -> Size {
+    Size::new(width, height)
+}
 
 /// Screen Builder，用于封装 SPI 和屏幕初始化
 pub struct ScreenBuilder;
@@ -90,21 +99,49 @@ impl<SPI: SpiDevice> Screen<SPI> {
         Ok(Self { driver})
     }
 
-    pub fn draw_example(&mut self) -> Result<()> {
-        // 画一个圆
-        Circle::new(Point::new(64, 32), 30)
-            .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
-            .draw(&mut self.driver)
-            .map_err(|_| anyhow::anyhow!("Circle draw failed"))?;
+    // pub fn draw_example(&mut self) -> Result<()> {
+    //     // 画一个圆
+    //     Circle::new(Point::new(64, 32), 30)
+    //         .into_styled(PrimitiveStyle::with_stroke(BinaryColor::On, 1))
+    //         .draw(&mut self.driver)
+    //         .map_err(|_| anyhow::anyhow!("Circle draw failed"))?;
 
-        // 显示文本
+    //     // 显示文本
+    //     let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
+    //     Text::new("Hello!", Point::new(10, 10), style)
+    //         .draw(&mut self.driver)
+    //         .map_err(|_| anyhow::anyhow!("Text draw failed"))?;
+
+    //     // 刷新到屏幕
+    //     self.driver.flush().map_err(|_| anyhow::anyhow!("Screen flush failed"))?;
+    //     Ok(())
+    // }
+
+    // 每次绘制后需要调用 flush 将缓冲区内容显示到屏幕上
+    pub fn flush(&mut self) -> Result<()> {
+        self.driver.flush().map_err(|_| anyhow::anyhow!("Screen flush failed"))?;
+        Ok(())
+    }
+
+    // 清理屏幕内容
+    pub fn clear(&mut self) -> Result<()> {
+        self.driver.clear(BinaryColor::Off).map_err(|_| anyhow::anyhow!("Screen clear failed"))?;
+        Ok(())
+    }
+
+    pub fn draw_text(&mut self, text: &str, position: Point) -> Result<()> {
         let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
-        Text::new("Hello!", Point::new(10, 10), style)
+        Text::new(text, position, style)
             .draw(&mut self.driver)
             .map_err(|_| anyhow::anyhow!("Text draw failed"))?;
+        Ok(())
+    }
 
-        // 刷新到屏幕
-        self.driver.flush().map_err(|_| anyhow::anyhow!("Screen flush failed"))?;
+    pub fn draw_text_big(&mut self, text: &str, position: Point) -> Result<()> {
+        let style = MonoTextStyle::new(&FONT_9X18_BOLD, BinaryColor::On);
+        Text::new(text, position, style)
+            .draw(&mut self.driver)
+            .map_err(|_| anyhow::anyhow!("Text draw failed"))?;
         Ok(())
     }
 }
