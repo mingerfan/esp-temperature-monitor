@@ -116,10 +116,10 @@ impl TimeDB {
         Ok(())
     }
 
-    /// 设置容量警戒线百分比
-    pub fn set_capacity_threshold(&mut self, threshold: f32) {
-        self.capacity_threshold = threshold.max(1.0).min(100.0);
-    }
+    // 设置容量警戒线百分比
+    // pub fn set_capacity_threshold(&mut self, threshold: f32) {
+    //     self.capacity_threshold = threshold.max(1.0).min(100.0);
+    // }
 
     // pub fn get_by_time(&mut self, left: i64, right: i64) -> Vec<info_def::InfoSlot> {
     //     let mut result = Vec::new();
@@ -171,21 +171,21 @@ impl TimeDB {
     //     Ok(())
     // }
 
-    pub fn get_all_data(&mut self) -> Vec<info_def::InfoSlot> {
-        let mut result = Vec::new();
-        self.db.tsdb_iter(|db, tsl| {
-            let mut cur = db.open_read(tsl.clone());
-            let mut buf = vec![0u8; size_of::<info_def::InfoSlot>()];
-            if cur.read(buf.as_mut_slice()).is_ok() {
-                let slot = info_def::InfoSlot::from_bytes(buf.as_slice());
-                result.push(slot);
-            } else {
-                log::error!("迭代过程中读取时间槽数据失败: tsl={tsl:?}");
-            }
-            true
-        }, false);
-        result
-    }
+    // pub fn get_all_data(&mut self) -> Vec<info_def::InfoSlot> {
+    //     let mut result = Vec::new();
+    //     self.db.tsdb_iter(|db, tsl| {
+    //         let mut cur = db.open_read(tsl.clone());
+    //         let mut buf = vec![0u8; size_of::<info_def::InfoSlot>()];
+    //         if cur.read(buf.as_mut_slice()).is_ok() {
+    //             let slot = info_def::InfoSlot::from_bytes(buf.as_slice());
+    //             result.push(slot);
+    //         } else {
+    //             log::error!("迭代过程中读取时间槽数据失败: tsl={tsl:?}");
+    //         }
+    //         true
+    //     }, false);
+    //     result
+    // }
 
     // pub fn earliest(&mut self) -> Option<info_def::InfoSlot> {
     //     let mut tmp: Option<info_def::InfoSlot> = None;

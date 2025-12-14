@@ -1,6 +1,4 @@
 use anyhow::Result;
-use embedded_graphics::mono_font::MonoFont;
-use embedded_graphics::primitives::PrimitiveStyle;
 use embedded_hal::spi::SpiDevice;
 use esp_idf_svc::hal::gpio::{self, AnyIOPin, InputOutput, PinDriver};
 use esp_idf_svc::hal::spi::{SPI2, SpiConfig, SpiDeviceDriver, SpiDriver, SpiDriverConfig};
@@ -19,9 +17,6 @@ pub fn to_point(x: i32, y: i32) -> Point {
     Point::new(x, y)
 }
 
-pub fn to_size(width: u32, height: u32) -> Size {
-    Size::new(width, height)
-}
 
 /// Screen Builder，用于封装 SPI 和屏幕初始化
 pub struct ScreenBuilder;

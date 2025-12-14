@@ -9,11 +9,9 @@ use service::ntp;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::data::info_def::InfoSlot;
-use crate::peripherals::screen::{self, Screen, ScreenBuilder};
+use crate::peripherals::screen::{self, ScreenBuilder};
 use crate::peripherals::temperature_sensor::TemperatureSensor;
 use crate::peripherals::wifi::WifiBuilder;
-use crate::utils::circular_queue;
 // use embedded_hal::digital::{InputPin, OutputPin, PinState};
 
 include!("../.env/config.rs");
